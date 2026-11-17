@@ -9,6 +9,8 @@ admin_about_statistics = "/api/admin/about/statistics"
 """`/api/admin/about/statistics`"""
 admin_backups = "/api/admin/backups"
 """`/api/admin/backups`"""
+admin_backups_s3 = "/api/admin/backups/s3"
+"""`/api/admin/backups/s3`"""
 admin_backups_status = "/api/admin/backups/status"
 """`/api/admin/backups/status`"""
 admin_backups_upload = "/api/admin/backups/upload"
@@ -235,6 +237,16 @@ def admin_backups_file_name(file_name):
 def admin_backups_file_name_restore(file_name):
     """`/api/admin/backups/{file_name}/restore`"""
     return f"{prefix}/admin/backups/{file_name}/restore"
+
+
+def admin_backups_s3_file_name(file_name):
+    """`/api/admin/backups/s3/{file_name}`"""
+    return f"{prefix}/admin/backups/s3/{file_name}"
+
+
+def admin_backups_s3_file_name_restore(file_name):
+    """`/api/admin/backups/s3/{file_name}/restore`"""
+    return f"{prefix}/admin/backups/s3/{file_name}/restore"
 
 
 def admin_debug_openai_provider_id(provider_id):

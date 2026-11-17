@@ -59,6 +59,84 @@ def test_backup_schedule_defaults(monkeypatch: pytest.MonkeyPatch):
         get_app_settings.cache_clear()
 
 
+_BACKUP_S3_ENV = [
+    "BACKUP_S3_ENABLED",
+    "BACKUP_S3_BUCKET",
+    "BACKUP_S3_ACCESS_KEY_ID",
+    "BACKUP_S3_SECRET_ACCESS_KEY",
+    "BACKUP_S3_ENDPOINT_URL",
+    "BACKUP_S3_REGION",
+    "BACKUP_S3_PREFIX",
+    "BACKUP_S3_VIRTUAL_HOSTED_STYLE",
+]
+
+
+@pytest.fixture
+def clean_backup_s3_env(monkeypatch: pytest.MonkeyPatch):
+    for name in _BACKUP_S3_ENV:
+        monkeypatch.delenv(name, raising=False)
+    get_app_settings.cache_clear()
+    yield monkeypatch
+    get_app_settings.cache_clear()
+
+
+def test_backup_s3_feature_off_by_default(clean_backup_s3_env: pytest.MonkeyPatch):
+    settings = get_app_settings()
+    assert settings.BACKUP_S3_ENABLED is False
+    assert settings.BACKUP_S3_REGION == "us-east-1"
+    assert settings.BACKUP_S3_PREFIX == ""
+    assert settings.BACKUP_S3_VIRTUAL_HOSTED_STYLE is False
+    assert settings.BACKUP_S3_FEATURE.enabled is False
+    assert settings.BACKUP_S3_FEATURE.description == "BACKUP_S3_ENABLED is false"
+
+
+def test_backup_s3_feature_lists_missing_values(clean_backup_s3_env: pytest.MonkeyPatch):
+    clean_backup_s3_env.setenv("BACKUP_S3_ENABLED", "true")
+    clean_backup_s3_env.setenv("BACKUP_S3_BUCKET", "my-bucket")
+    feature = get_app_settings().BACKUP_S3_FEATURE
+    assert feature.enabled is False
+    assert feature.description is not None
+    assert "BACKUP_S3_ACCESS_KEY_ID" in feature.description
+    assert "BACKUP_S3_SECRET_ACCESS_KEY" in feature.description
+    assert "BACKUP_S3_BUCKET" not in feature.description
+
+
+def test_backup_s3_feature_enabled_when_complete(clean_backup_s3_env: pytest.MonkeyPatch):
+    clean_backup_s3_env.setenv("BACKUP_S3_ENABLED", "true")
+    clean_backup_s3_env.setenv("BACKUP_S3_BUCKET", "my-bucket")
+    clean_backup_s3_env.setenv("BACKUP_S3_ACCESS_KEY_ID", "AKIAEXAMPLE")
+    clean_backup_s3_env.setenv("BACKUP_S3_SECRET_ACCESS_KEY", "s3cr3t-value")
+    feature = get_app_settings().BACKUP_S3_FEATURE
+    assert feature.enabled is True
+    assert feature.description is None
+
+
+def test_backup_s3_secret_is_masked(clean_backup_s3_env: pytest.MonkeyPatch):
+    clean_backup_s3_env.setenv("BACKUP_S3_SECRET_ACCESS_KEY", "s3cr3t-value")
+    clean_backup_s3_env.setenv("BACKUP_S3_ACCESS_KEY_ID", "AKIAMASKME")
+    settings = get_app_settings()
+    for value in ("s3cr3t-value", "AKIAMASKME"):
+        assert value not in settings.model_dump_json()
+        assert value not in str(settings.model_dump())
+    assert settings.BACKUP_S3_SECRET_ACCESS_KEY == "s3cr3t-value"
+    assert settings.BACKUP_S3_ACCESS_KEY_ID == "AKIAMASKME"
+
+
+@pytest.mark.parametrize("empty", ["BACKUP_S3_BUCKET", "BACKUP_S3_ACCESS_KEY_ID", "BACKUP_S3_SECRET_ACCESS_KEY"])
+def test_backup_s3_feature_treats_an_empty_value_as_missing(clean_backup_s3_env: pytest.MonkeyPatch, empty: str):
+    clean_backup_s3_env.setenv("BACKUP_S3_ENABLED", "true")
+    clean_backup_s3_env.setenv("BACKUP_S3_BUCKET", "my-bucket")
+    clean_backup_s3_env.setenv("BACKUP_S3_ACCESS_KEY_ID", "AKIAEXAMPLE")
+    clean_backup_s3_env.setenv("BACKUP_S3_SECRET_ACCESS_KEY", "s3cr3t-value")
+    clean_backup_s3_env.setenv(empty, "")
+
+    feature = get_app_settings().BACKUP_S3_FEATURE
+
+    assert feature.enabled is False
+    assert feature.description is not None
+    assert empty in feature.description
+
+
 @pytest.mark.parametrize("value", ["0", "-1"])
 def test_backup_retention_count_below_one_is_rejected(monkeypatch: pytest.MonkeyPatch, value: str):
     monkeypatch.setenv("BACKUP_RETENTION_COUNT", value)

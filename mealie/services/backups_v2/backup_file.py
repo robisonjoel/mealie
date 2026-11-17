@@ -75,12 +75,14 @@ class BackupContents:
 class BackupFile:
     temp_dir: Path | None = None
 
-    def __init__(self, file: Path) -> None:
+    def __init__(self, file: Path, archive_format: str | None = None) -> None:
         self.zip = file
+        self.archive_format = archive_format
+        """The format of the archive. If None, the format is taken from the extension of the file name"""
 
     def __enter__(self) -> BackupContents:
         self.temp_dir = Path(tempfile.mkdtemp())
-        shutil.unpack_archive(str(self.zip), str(self.temp_dir))
+        shutil.unpack_archive(str(self.zip), str(self.temp_dir), format=self.archive_format)
         return BackupContents(self.temp_dir)
 
     def __exit__(self, exc_type, exc_val, exc_tb):

@@ -262,6 +262,40 @@ class AppSettings(AppLoggingSettings):
             raise ValueError("BACKUP_RETENTION_COUNT must be at least 1")
         return v
 
+    BACKUP_S3_ENABLED: bool = False
+    """Move scheduled backups to an S3-compatible bucket"""
+
+    BACKUP_S3_BUCKET: str | None = None
+    BACKUP_S3_ACCESS_KEY_ID: MaskedNoneString = None
+    BACKUP_S3_SECRET_ACCESS_KEY: MaskedNoneString = None
+
+    BACKUP_S3_ENDPOINT_URL: str | None = None
+    """Leave unset for AWS"""
+
+    BACKUP_S3_REGION: str = "us-east-1"
+    BACKUP_S3_PREFIX: str = ""
+
+    BACKUP_S3_VIRTUAL_HOSTED_STYLE: bool = False
+    """Most self-hosted S3 services need False"""
+
+    @property
+    def BACKUP_S3_FEATURE(self) -> FeatureDetails:
+        description = None if self.BACKUP_S3_ENABLED else "BACKUP_S3_ENABLED is false"
+        required = {
+            "BACKUP_S3_BUCKET": self.BACKUP_S3_BUCKET,
+            "BACKUP_S3_ACCESS_KEY_ID": self.BACKUP_S3_ACCESS_KEY_ID,
+            "BACKUP_S3_SECRET_ACCESS_KEY": self.BACKUP_S3_SECRET_ACCESS_KEY,
+        }
+        missing_values = [key for (key, value) in required.items() if not value]
+        complete = not missing_values
+        if missing_values and not description:
+            description = f"Missing required values for {missing_values}"
+
+        return FeatureDetails(
+            enabled=self.BACKUP_S3_ENABLED and complete,
+            description=description,
+        )
+
     @property
     def logger(self) -> logging.Logger:
         # Avoid a circular import by importing here instead of at the file's top-level.

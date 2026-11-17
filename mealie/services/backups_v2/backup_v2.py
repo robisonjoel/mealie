@@ -119,10 +119,15 @@ class BackupV2(BaseService):
         get_app_settings.cache_clear()
         self.settings = get_app_settings()
 
-    def restore(self, backup_path: Path) -> None:
+    def restore(self, backup_path: Path, archive_format: str | None = None) -> None:
+        """Restore the database and the data directory from a backup.
+
+        `archive_format` names the format of a file whose name does not end in a known extension,
+        for example a temporary download. If None, the format is taken from the file name.
+        """
         self.logger.info("initializing backup restore")
 
-        backup = BackupFile(backup_path)
+        backup = BackupFile(backup_path, archive_format)
 
         if self.settings.DB_ENGINE == "sqlite":
             self._sqlite()

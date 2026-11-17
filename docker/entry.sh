@@ -59,6 +59,9 @@ load_secrets() {
         "OIDC_CLIENT_ID"
         "OIDC_NATIVE_CLIENT_ID"
         "OIDC_CLIENT_SECRET"
+
+        "BACKUP_S3_ACCESS_KEY_ID"
+        "BACKUP_S3_SECRET_ACCESS_KEY"
     )
     local var file_var secret_file secret_value
 

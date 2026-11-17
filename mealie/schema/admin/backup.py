@@ -10,8 +10,9 @@ class BackupRunOutcome(StrEnum):
     never_run = "never_run"
     success = "success"
     backup_failed = "backup_failed"
+    upload_failed = "upload_failed"
     cleanup_failed = "cleanup_failed"
-    """The backup was made, but an old backup could not be removed"""
+    """The backup was made, but an old backup or a moved backup could not be removed"""
 
 
 class BackupFile(BaseModel):
@@ -32,8 +33,22 @@ class BackupLastRunOut(MealieOutModel):
     file_name: str | None = None
 
 
+class BucketBackupsOut(MealieOutModel):
+    backups: list[BackupFile]
+
+
+class BackupBucketStatusOut(MealieOutModel):
+    enabled: bool
+    state: str
+    """One of disabled, misconfigured, connected, access_denied, not_found, unreachable, error"""
+    bucket: str | None = None
+    prefix: str | None = None
+    detail: str | None = None
+
+
 class BackupStatusOut(MealieOutModel):
     schedule_enabled: bool
     schedule_time: str
     retention_count: int
     last_run: BackupLastRunOut
+    s3: BackupBucketStatusOut

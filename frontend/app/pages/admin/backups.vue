@@ -32,6 +32,13 @@
             </template>
           </i18n-t>
 
+          <p
+            v-if="selectedSource === 's3'"
+            class="mt-3 s3-restore-note"
+          >
+            {{ $t("settings.backup.s3-restore-note") }}
+          </p>
+
           <p class="mt-3">
             <i18n-t keypath="settings.backup.postgresql-note">
               <template #backup-restore-process>
@@ -99,11 +106,38 @@
             color="info"
             @uploaded="refreshBackups()"
           />
+          <v-spacer />
+          <v-btn-toggle
+            v-if="showToggle"
+            v-model="view"
+            mandatory
+            divided
+            variant="outlined"
+            color="primary"
+            density="comfortable"
+            class="ml-2 flex-shrink-0 backup-view-toggle"
+          >
+            <v-btn value="local">
+              {{ $t("settings.backup.on-this-server") }}
+            </v-btn>
+            <v-btn value="s3">
+              {{ $t("settings.backup.s3-bucket") }}
+            </v-btn>
+          </v-btn-toggle>
         </v-toolbar>
+
+        <v-alert
+          v-if="viewingBucket && bucketListFailed"
+          type="error"
+          variant="tonal"
+          class="my-2"
+        >
+          {{ $t("settings.backup.s3-list-failed") }}
+        </v-alert>
 
         <v-data-table
           :headers="state.headers"
-          :items="backups.imports || []"
+          :items="rows"
           class="elevation-0"
           :items-per-page="-1"
           hide-default-footer
@@ -122,12 +156,13 @@
               variant="text"
               @click.stop="
                 state.deleteDialog = true;
-                deleteTarget = item.name;
+                pickDelete(item.name, currentSource);
               "
             >
               <v-icon> {{ $globals.icons.delete }} </v-icon>
             </v-btn>
             <BaseButton
+              v-if="!viewingBucket"
               small
               download
               :download-url="backupsFileNameDownload(item.name)"
@@ -159,8 +194,9 @@
 
 <script setup lang="ts">
 import { useAdminApi } from "~/composables/api";
-import type { AllBackups, BackupStatusOut } from "~/lib/api/types/admin";
+import type { AllBackups, BackupFile, BackupStatusOut } from "~/lib/api/types/admin";
 import { alert } from "~/composables/use-toast";
+import { useBackupActions, type BackupSource } from "~/composables/use-backup-actions";
 
 definePageMeta({
   layout: "admin",
@@ -169,7 +205,6 @@ definePageMeta({
 const i18n = useI18n();
 
 const adminApi = useAdminApi();
-const selected = ref("");
 
 const backups = ref<AllBackups>({
   imports: [],
@@ -177,6 +212,8 @@ const backups = ref<AllBackups>({
 });
 
 const status = ref<BackupStatusOut | null>(null);
+
+const { selected, selectedSource, pickRestore, pickDelete, restore, remove } = useBackupActions(adminApi.backups);
 
 async function refreshStatus() {
   try {
@@ -188,11 +225,54 @@ async function refreshStatus() {
   }
 }
 
+const view = ref<"local" | "s3">("local");
+const bucketBackups = ref<BackupFile[]>([]);
+const bucketListFailed = ref(false);
+
+const showToggle = computed(() => !!status.value?.s3.enabled && status.value.s3.state !== "misconfigured");
+const viewingBucket = computed(() => showToggle.value && view.value === "s3");
+const currentSource = computed<BackupSource>(() => (viewingBucket.value ? "s3" : "local"));
+const rows = computed(() => (viewingBucket.value ? bucketBackups.value : backups.value.imports || []));
+
+async function refreshBucketBackups() {
+  try {
+    const { data, error } = await adminApi.backups.getS3();
+    bucketListFailed.value = !!error || !data;
+    bucketBackups.value = data?.backups ?? [];
+  }
+  catch {
+    bucketListFailed.value = true;
+    bucketBackups.value = [];
+  }
+}
+
 async function refreshBackups() {
   const [{ data }] = await Promise.all([adminApi.backups.getAll(), refreshStatus()]);
   if (data) {
     backups.value = data;
   }
+  if (viewingBucket.value) {
+    await refreshBucketBackups();
+  }
+}
+
+watch(view, (value) => {
+  state.deleteDialog = false;
+  state.importDialog = false;
+  if (value === "s3" && showToggle.value) {
+    refreshBucketBackups();
+  }
+});
+
+watch(showToggle, (value) => {
+  if (!value) {
+    view.value = "local";
+  }
+});
+
+function errorDetail(error: unknown, fallback: string): string {
+  const message = (error as { response?: { data?: { message?: unknown } } } | null)?.response?.data?.message;
+  return typeof message === "string" && message ? message : fallback;
 }
 
 async function createBackup() {
@@ -211,13 +291,13 @@ async function createBackup() {
 
 async function restoreBackup(fileName: string) {
   state.runningRestore = true;
-  const { error } = await adminApi.backups.restore(fileName);
+  const { error, source } = await restore(fileName);
 
   if (error) {
     console.log(error);
     state.importDialog = false;
     state.runningRestore = false;
-    alert.error(i18n.t("settings.backup.restore-fail"));
+    alert.error(source === "s3" ? errorDetail(error, i18n.t("settings.backup.restore-fail")) : i18n.t("settings.backup.restore-fail"));
   }
   else {
     alert.success(i18n.t("settings.backup.restore-success"));
@@ -227,10 +307,18 @@ async function restoreBackup(fileName: string) {
   }
 }
 
-const deleteTarget = ref("");
-
 async function deleteBackup() {
-  const { data } = await adminApi.backups.delete(deleteTarget.value);
+  const { data, error, source } = await remove();
+
+  if (source === "s3") {
+    if (error || data?.error) {
+      alert.error(errorDetail(error, i18n.t("settings.backup.s3-error")));
+      return;
+    }
+    alert.success(i18n.t("settings.backup.backup-deleted"));
+    await refreshBackups();
+    return;
+  }
 
   if (!data?.error) {
     alert.success(i18n.t("settings.backup.backup-deleted"));
@@ -258,7 +346,7 @@ function setSelected(data: { name: string; date: string }) {
   if (!data.name) {
     return;
   }
-  selected.value = data.name;
+  pickRestore(data.name, currentSource.value);
 }
 
 const backupsFileNameDownload = (fileName: string) => `api/admin/backups/${fileName}`;

@@ -793,7 +793,17 @@
       "last-run-never": "Never",
       "last-run-succeeded": "Succeeded",
       "last-run-backup-failed": "Backup failed",
-      "last-run-cleanup-failed": "Backup created, cleanup failed"
+      "last-run-cleanup-failed": "Backup created, cleanup failed",
+      "last-run-upload-failed": "Upload failed",
+      "s3-bucket": "S3 Bucket",
+      "on-this-server": "On This Server",
+      "s3-connected": "Connected",
+      "s3-misconfigured": "Misconfigured: {detail}",
+      "s3-access-denied": "Access denied",
+      "s3-unreachable": "Cannot reach the bucket",
+      "s3-error": "Error. Check the server logs",
+      "s3-restore-note": "Mealie downloads this backup from the bucket before it restores.",
+      "s3-list-failed": "Could not load backups from the bucket"
     },
     "backup-and-exports": "Backups",
     "change-password": "Change Password",

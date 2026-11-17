@@ -1,6 +1,9 @@
 import json
+import shutil
 from pathlib import Path
 from zipfile import ZipFile
+
+import pytest
 
 from mealie.services.backups_v2.backup_file import BackupFile
 from tests import utils
@@ -54,3 +57,19 @@ def test_backup_file_valid_zip(tmp_path: Path):
 
         assert content.read_tables() == dummy_dict
         assert content.data_directory.joinpath("test.txt").is_file()
+
+
+def test_backup_file_reads_a_zip_without_a_zip_extension(tmp_path: Path):
+    temp_zip = zip_factory(tmp_path)
+    renamed = temp_zip.rename(tmp_path / ".s3-restore-0a1b2c3d.zip.part")
+
+    with BackupFile(renamed, archive_format="zip") as contents:
+        assert (contents.base / "test.txt").read_text() == "test"
+
+
+def test_backup_file_takes_the_format_from_the_name_by_default(tmp_path: Path):
+    temp_zip = zip_factory(tmp_path)
+    renamed = temp_zip.rename(tmp_path / "backup.zip.part")
+
+    with pytest.raises(shutil.ReadError), BackupFile(renamed):
+        pass

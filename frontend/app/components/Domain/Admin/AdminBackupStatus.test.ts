@@ -9,8 +9,13 @@ function makeStatus(overrides: Partial<BackupStatusOut> = {}): BackupStatusOut {
     scheduleTime: "23:45",
     retentionCount: 7,
     lastRun: { outcome: "never_run", finishedAt: null, message: null, fileName: null },
+    s3: { enabled: false, state: "disabled", bucket: null, prefix: null, detail: null },
     ...overrides,
   };
+}
+
+function makeS3(overrides: Partial<BackupStatusOut["s3"]> = {}): BackupStatusOut["s3"] {
+  return { enabled: true, state: "connected", bucket: "my-bucket", prefix: "mealie", detail: null, ...overrides };
 }
 
 function render(status: BackupStatusOut) {
@@ -127,5 +132,61 @@ describe("AdminBackupStatus", () => {
     const wrapper = render(makeStatus({ scheduleEnabled: false }));
 
     expect(wrapper.find(".admin-backup-status").attributes("style") ?? "").not.toContain("border-left");
+  });
+
+  test("hides the S3 cell when S3 is off", () => {
+    const text = render(makeStatus()).text();
+
+    expect(text).not.toContain("my-bucket");
+    expect(text).not.toContain("Connected");
+  });
+
+  test("shows the bucket and Connected for a connected bucket", () => {
+    const wrapper = render(makeStatus({ s3: makeS3() }));
+
+    expect(wrapper.text()).toContain("my-bucket/mealie");
+    expect(wrapper.text()).toContain("Connected");
+    expect(wrapper.find(".s3-state").classes()).not.toContain("text-error");
+  });
+
+  test("shows the detail for a misconfigured bucket", () => {
+    const detail = "Missing required values for ['BACKUP_S3_BUCKET']";
+    const wrapper = render(makeStatus({ s3: makeS3({ state: "misconfigured", bucket: null, prefix: null, detail }) }));
+
+    expect(wrapper.text()).toContain(`Misconfigured: ${detail}`);
+    expect(wrapper.find(".s3-state").classes()).toContain("text-error");
+  });
+
+  test.each([
+    ["access_denied", "Access denied"],
+    ["unreachable", "Cannot reach the bucket"],
+    ["not_found", "Error. Check the server logs"],
+    ["error", "Error. Check the server logs"],
+  ])("shows the text for the %s state", (state, expected) => {
+    const wrapper = render(makeStatus({ s3: makeS3({ state }) }));
+
+    expect(wrapper.text()).toContain(expected);
+    expect(wrapper.find(".s3-state").classes()).toContain("text-error");
+  });
+
+  test("shows Upload failed in the error color with an error accent", () => {
+    const wrapper = render(makeStatus({
+      lastRun: { outcome: "upload_failed", finishedAt: "2026-11-13T23:45:10Z", message: "bucket down", fileName: "a.zip" },
+    }));
+
+    expect(wrapper.text()).toContain("Upload failed");
+    expect(wrapper.text()).toContain("bucket down");
+    expect(wrapper.find(".last-run-outcome").classes()).toContain("text-error");
+    expect(wrapper.find(".admin-backup-status").attributes("style")).toContain("--v-theme-error");
+  });
+
+  test("shows the message of a successful run in the default color", () => {
+    const wrapper = render(makeStatus({
+      lastRun: { outcome: "success", finishedAt: "2026-11-13T23:45:10Z", message: "Bucket cleanup failed: unreachable", fileName: "a.zip" },
+    }));
+
+    const message = wrapper.find(".last-run-message");
+    expect(message.text()).toBe("Bucket cleanup failed: unreachable");
+    expect(message.classes()).not.toContain("text-error");
   });
 });

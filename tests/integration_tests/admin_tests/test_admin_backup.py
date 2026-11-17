@@ -59,6 +59,7 @@ def test_backup_status_never_run(api_client: TestClient, admin_user: TestUser):
     assert body["retentionCount"] == settings.BACKUP_RETENTION_COUNT
     assert body["scheduleEnabled"] is settings.BACKUP_SCHEDULE_ENABLED
     assert body["scheduleTime"] == settings.DAILY_SCHEDULE_TIME
+    assert body["s3"] == {"enabled": False, "state": "disabled", "bucket": None, "prefix": None, "detail": None}
 
 
 def test_backup_status_reports_last_run(api_client: TestClient, admin_user: TestUser):

@@ -79,10 +79,18 @@ Set `HOST_IP` to an empty string to trust no forwarding proxies.
 
 ### Backups
 
-| Variables               | Default | Description                                                                                             |
-| ----------------------- | :-----: | ------------------------------------------------------------------------------------------------------- |
-| BACKUP_SCHEDULE_ENABLED |  False  | Create a backup every day at `DAILY_SCHEDULE_TIME`                                                      |
-| BACKUP_RETENTION_COUNT  |    7    | Number of scheduled backups to keep. Minimum 1. Mealie never removes backups with other names           |
+| Variables                                                     |  Default  | Description                                                                                                                                  |
+| ------------------------------------------------------------- | :-------: | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| BACKUP_SCHEDULE_ENABLED                                       |   False   | Create a backup every day at `DAILY_SCHEDULE_TIME`                                                                                           |
+| BACKUP_RETENTION_COUNT                                        |     7     | Number of scheduled backups to keep. Minimum 1. Mealie never removes backups with other names                                                |
+| BACKUP_S3_ENABLED                                             |   False   | Move scheduled backups to an S3-compatible bucket. Requires `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY_ID`, and `BACKUP_S3_SECRET_ACCESS_KEY` |
+| BACKUP_S3_BUCKET                                              |    None   | Name of the bucket                                                                                                                           |
+| BACKUP_S3_ACCESS_KEY_ID<super>[&dagger;][secrets]</super>     |    None   | Access key ID for the bucket                                                                                                                 |
+| BACKUP_S3_SECRET_ACCESS_KEY<super>[&dagger;][secrets]</super> |    None   | Secret access key for the bucket                                                                                                             |
+| BACKUP_S3_ENDPOINT_URL                                        |    None   | URL of the S3 service. Leave unset for AWS                                                                                                   |
+| BACKUP_S3_REGION                                              | us-east-1 | Region of the bucket                                                                                                                         |
+| BACKUP_S3_PREFIX                                              |     ""    | Key prefix for all backup objects in the bucket. Use a different prefix or bucket for each Mealie install                                    |
+| BACKUP_S3_VIRTUAL_HOSTED_STYLE                                |   False   | Use virtual-hosted-style URLs. Most self-hosted S3 services need False                                                                       |
 
 ### Email
 
@@ -458,6 +466,8 @@ at least these sensitive environment variables when working within shared enviro
 - `POSTGRES_PASSWORD`
 - `SMTP_PASSWORD`
 - `LDAP_QUERY_PASSWORD`
+- `BACKUP_S3_ACCESS_KEY_ID`
+- `BACKUP_S3_SECRET_ACCESS_KEY`
 
 [docker-secrets]: https://docs.docker.com/compose/use-secrets/
 [secrets]: #docker-secrets
