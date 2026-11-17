@@ -5,6 +5,8 @@
 /* Do not modify it by hand - just update the pydantic models and then re-run the script
 */
 
+export type BackupRunOutcome = "never_run" | "success" | "backup_failed" | "cleanup_failed";
+
 export interface AdminAboutInfo {
   production: boolean;
   version: string;
@@ -84,6 +86,18 @@ export interface AppTheme {
   darkInfo?: string;
   darkWarning?: string;
   darkError?: string;
+}
+export interface BackupLastRunOut {
+  outcome: BackupRunOutcome;
+  finishedAt: string | null;
+  message: string | null;
+  fileName: string | null;
+}
+export interface BackupStatusOut {
+  scheduleEnabled: boolean;
+  scheduleTime: string;
+  retentionCount: number;
+  lastRun: BackupLastRunOut;
 }
 export interface CheckAppConfig {
   emailReady: boolean;

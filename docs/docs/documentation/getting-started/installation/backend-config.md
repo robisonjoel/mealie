@@ -77,6 +77,13 @@ Set `HOST_IP` to an empty string to trust no forwarding proxies.
  | POSTGRES_DB<super>[&dagger;][secrets]</super>           |  mealie  | Postgres database name                                                                                                                                                                                                           |
  | POSTGRES_URL_OVERRIDE<super>[&dagger;][secrets]</super> |   None   | Optional Postgres URL override to use instead of POSTGRES\_\* variables                                                                                                                                                          |
 
+### Backups
+
+| Variables               | Default | Description                                                                                             |
+| ----------------------- | :-----: | ------------------------------------------------------------------------------------------------------- |
+| BACKUP_SCHEDULE_ENABLED |  False  | Create a backup every day at `DAILY_SCHEDULE_TIME`                                                      |
+| BACKUP_RETENTION_COUNT  |    7    | Number of scheduled backups to keep. Minimum 1. Mealie never removes backups with other names           |
+
 ### Email
 
 | Variables                                       | Default | Description                                       |

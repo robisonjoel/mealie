@@ -16,6 +16,10 @@ const i18n = createI18n({
   messages: {
     "en-US": loadEnLocales(),
   },
+  datetimeFormats: {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    "en-US": require("../lang/dateTimeFormats/en-US.json"),
+  },
 });
 
 config.global.plugins = [...(config.global.plugins ?? []), i18n];

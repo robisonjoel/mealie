@@ -783,7 +783,17 @@
       "postgresql-note": "If you are using PostgreSQL, please review the {backup-restore-process} prior to restoring.",
       "backup-restore-process-in-the-documentation": "backup/restore process in the documentation",
       "irreversible-acknowledgment": "I understand that this action is irreversible, destructive and may cause data loss",
-      "restore-backup": "Restore Backup"
+      "restore-backup": "Restore Backup",
+      "scheduled-backups": "Scheduled Backups",
+      "scheduled-daily-at": "Daily at {time}",
+      "scheduled-off": "Off. Set BACKUP_SCHEDULE_ENABLED to turn on",
+      "retention": "Retention",
+      "retention-keep-last": "Keep last {count}",
+      "last-run": "Last Run",
+      "last-run-never": "Never",
+      "last-run-succeeded": "Succeeded",
+      "last-run-backup-failed": "Backup failed",
+      "last-run-cleanup-failed": "Backup created, cleanup failed"
     },
     "backup-and-exports": "Backups",
     "change-password": "Change Password",

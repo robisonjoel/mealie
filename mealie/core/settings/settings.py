@@ -249,6 +249,19 @@ class AppSettings(AppLoggingSettings):
     DAILY_SCHEDULE_TIME: str = "23:45"
     """Local server time, in HH:MM format. See `DAILY_SCHEDULE_TIME_UTC` for the parsed UTC equivalent"""
 
+    BACKUP_SCHEDULE_ENABLED: bool = False
+    """Create a backup every day at `DAILY_SCHEDULE_TIME`"""
+
+    BACKUP_RETENTION_COUNT: int = 7
+    """Number of scheduled backups to keep"""
+
+    @field_validator("BACKUP_RETENTION_COUNT")
+    @classmethod
+    def validate_backup_retention_count(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("BACKUP_RETENTION_COUNT must be at least 1")
+        return v
+
     @property
     def logger(self) -> logging.Logger:
         # Avoid a circular import by importing here instead of at the file's top-level.

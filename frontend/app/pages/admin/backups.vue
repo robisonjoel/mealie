@@ -76,6 +76,10 @@
             <i18n-t keypath="settings.backup.experimental-description" />
           </v-card-text>
         </BaseCardSectionTitle>
+        <AdminBackupStatus
+          v-if="status"
+          :status="status"
+        />
         <v-toolbar
           color="transparent"
           flat
@@ -155,7 +159,7 @@
 
 <script setup lang="ts">
 import { useAdminApi } from "~/composables/api";
-import type { AllBackups } from "~/lib/api/types/admin";
+import type { AllBackups, BackupStatusOut } from "~/lib/api/types/admin";
 import { alert } from "~/composables/use-toast";
 
 definePageMeta({
@@ -172,8 +176,20 @@ const backups = ref<AllBackups>({
   templates: [],
 });
 
+const status = ref<BackupStatusOut | null>(null);
+
+async function refreshStatus() {
+  try {
+    const { data } = await adminApi.backups.getStatus();
+    status.value = data ?? null;
+  }
+  catch {
+    status.value = null;
+  }
+}
+
 async function refreshBackups() {
-  const { data } = await adminApi.backups.getAll();
+  const [{ data }] = await Promise.all([adminApi.backups.getAll(), refreshStatus()]);
   if (data) {
     backups.value = data;
   }

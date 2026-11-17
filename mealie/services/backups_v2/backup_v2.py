@@ -1,5 +1,7 @@
+import contextlib
 import datetime
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -10,6 +12,13 @@ from mealie.core.settings.static import APP_VERSION
 from mealie.services._base_service import BaseService
 from mealie.services.backups_v2.alchemy_exporter import AlchemyExporter
 from mealie.services.backups_v2.backup_file import BackupFile
+
+SCHEDULED_PREFIX = "mealie_scheduled"
+TIMESTAMP_FORMAT = "%Y.%m.%d.%H.%M.%S"
+"""The UTC time in the name of a backup. The retention of scheduled backups sorts by it."""
+
+PART_SUFFIX = ".part"
+"""Added to the name of a backup while it is written, so an unfinished backup never ends in `.zip`"""
 
 
 class BackupSchemaMismatch(Exception): ...
@@ -41,37 +50,55 @@ class BackupV2(BaseService):
     def _postgres(self) -> None:
         pass
 
-    def backup(self) -> Path:
+    def backup(self, scheduled: bool = False) -> Path:
         # sourcery skip: merge-nested-ifs, reintroduce-else, remove-redundant-continue
-        timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y.%m.%d.%H.%M.%S")
+        timestamp = datetime.datetime.now(datetime.UTC).strftime(TIMESTAMP_FORMAT)
         short_hash = self.settings.GIT_COMMIT_HASH[:7]
 
+        prefix = SCHEDULED_PREFIX if scheduled else "mealie"
+
         if APP_VERSION == "develop":
-            backup_name = f"mealie_dev-{short_hash}_{timestamp}.zip"
+            backup_name = f"{prefix}_dev-{short_hash}_{timestamp}.zip"
         elif APP_VERSION == "nightly":
-            backup_name = f"mealie_nightly-{short_hash}_{timestamp}.zip"
+            backup_name = f"{prefix}_nightly-{short_hash}_{timestamp}.zip"
         else:
-            backup_name = f"mealie_{APP_VERSION}_{timestamp}.zip"
+            backup_name = f"{prefix}_{APP_VERSION}_{timestamp}.zip"
 
         backup_file = self.directories.BACKUP_DIR / backup_name
 
-        database_json = self.db_exporter.dump()
+        # The zip is written under a temporary name and renamed when it is complete, so a process
+        # that is killed mid-write never leaves a truncated file that looks like a finished backup.
+        part_file = backup_file.with_name(f"{backup_name}{PART_SUFFIX}")
 
-        with ZipFile(backup_file, "w") as zip_file:
-            zip_file.writestr("database.json", json.dumps(database_json))
+        created = False
+        try:
+            database_json = self.db_exporter.dump()
 
-            for data_file in self.directories.DATA_DIR.glob("**/*"):
-                if data_file.name in self.EXCLUDE_FILES:
-                    continue
+            existed = part_file.exists()
+            with open(part_file, "wb") as raw_file:
+                created = not existed
+                with ZipFile(raw_file, "w") as zip_file:
+                    zip_file.writestr("database.json", json.dumps(database_json))
 
-                if any(pattern.search(data_file.name) for pattern in self.EXCLUDE_FILES_REGEX):
-                    continue
+                    for data_file in self.directories.DATA_DIR.glob("**/*"):
+                        if data_file.name in self.EXCLUDE_FILES:
+                            continue
 
-                if data_file.is_file() and data_file.suffix not in self.EXCLUDE_EXTENTIONS:
-                    if data_file.parent.name in self.EXCLUDE_DIRS:
-                        continue
+                        if any(pattern.search(data_file.name) for pattern in self.EXCLUDE_FILES_REGEX):
+                            continue
 
-                    zip_file.write(data_file, f"data/{data_file.relative_to(self.directories.DATA_DIR)}")
+                        if data_file.is_file() and data_file.suffix not in self.EXCLUDE_EXTENTIONS:
+                            if data_file.parent.name in self.EXCLUDE_DIRS:
+                                continue
+
+                            zip_file.write(data_file, f"data/{data_file.relative_to(self.directories.DATA_DIR)}")
+
+            os.replace(part_file, backup_file)
+        except BaseException:
+            if created:
+                with contextlib.suppress(OSError):
+                    part_file.unlink(missing_ok=True)
+            raise
 
         return backup_file
 

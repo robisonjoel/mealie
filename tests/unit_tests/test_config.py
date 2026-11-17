@@ -47,6 +47,29 @@ def test_api_host_explicit_values_survive_parsing(host: str, monkeypatch: pytest
         get_app_settings.cache_clear()
 
 
+def test_backup_schedule_defaults(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("BACKUP_SCHEDULE_ENABLED", raising=False)
+    monkeypatch.delenv("BACKUP_RETENTION_COUNT", raising=False)
+    get_app_settings.cache_clear()
+    try:
+        settings = get_app_settings()
+        assert settings.BACKUP_SCHEDULE_ENABLED is False
+        assert settings.BACKUP_RETENTION_COUNT == 7
+    finally:
+        get_app_settings.cache_clear()
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_backup_retention_count_below_one_is_rejected(monkeypatch: pytest.MonkeyPatch, value: str):
+    monkeypatch.setenv("BACKUP_RETENTION_COUNT", value)
+    get_app_settings.cache_clear()
+    try:
+        with pytest.raises(ValueError, match="BACKUP_RETENTION_COUNT must be at least 1"):
+            get_app_settings()
+    finally:
+        get_app_settings.cache_clear()
+
+
 def test_allowed_iframe_hosts_defaults(monkeypatch):
     monkeypatch.delenv("ALLOWED_IFRAME_HOSTS", raising=False)
     get_app_settings.cache_clear()

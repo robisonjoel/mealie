@@ -1,11 +1,12 @@
 import { BaseAPI } from "../base/base-clients";
-import type { AllBackups } from "~/lib/api/types/admin";
+import type { AllBackups, BackupStatusOut } from "~/lib/api/types/admin";
 import type { ErrorResponse, FileTokenResponse, SuccessResponse } from "~/lib/api/types/response";
 
 const prefix = "/api";
 
 const routes = {
   base: `${prefix}/admin/backups`,
+  status: `${prefix}/admin/backups/status`,
   item: (name: string) => `${prefix}/admin/backups/${name}`,
   restore: (name: string) => `${prefix}/admin/backups/${name}/restore`,
 };
@@ -13,6 +14,10 @@ const routes = {
 export class AdminBackupsApi extends BaseAPI {
   async getAll() {
     return await this.requests.get<AllBackups>(routes.base);
+  }
+
+  async getStatus() {
+    return await this.requests.get<BackupStatusOut>(routes.status);
   }
 
   async create() {

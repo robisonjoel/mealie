@@ -10,8 +10,9 @@ from mealie.core.security import create_file_token
 from mealie.pkgs.stats.fs_stats import pretty_size
 from mealie.routes._base import BaseAdminController, controller
 from mealie.routes._base.permissions import not_found
-from mealie.schema.admin.backup import AllBackups, BackupFile
+from mealie.schema.admin.backup import AllBackups, BackupFile, BackupLastRunOut, BackupRunOutcome, BackupStatusOut
 from mealie.schema.response.responses import ErrorResponse, FileTokenResponse, SuccessResponse
+from mealie.services.backups_v2.backup_status import read_last_run
 
 logger = get_logger()
 router = APIRouter(prefix="/backups")
@@ -54,6 +55,26 @@ class AdminBackupController(BaseAdminController):
             raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR) from e
 
         return SuccessResponse.respond("Backup created successfully")
+
+    @router.get("/status", response_model=BackupStatusOut)
+    def get_status(self):
+        last_run = read_last_run(get_app_dirs().BACKUP_DIR)
+        if last_run is None:
+            last_run_out = BackupLastRunOut(outcome=BackupRunOutcome.never_run)
+        else:
+            last_run_out = BackupLastRunOut(
+                outcome=last_run.outcome,
+                finished_at=last_run.finished_at,
+                message=last_run.message,
+                file_name=last_run.file_name,
+            )
+
+        return BackupStatusOut(
+            schedule_enabled=self.settings.BACKUP_SCHEDULE_ENABLED,
+            schedule_time=self.settings.DAILY_SCHEDULE_TIME,
+            retention_count=self.settings.BACKUP_RETENTION_COUNT,
+            last_run=last_run_out,
+        )
 
     @router.get("/{file_name}", response_model=FileTokenResponse)
     def get_one(self, file_name: str):

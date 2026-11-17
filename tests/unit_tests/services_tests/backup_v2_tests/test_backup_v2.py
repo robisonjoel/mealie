@@ -1,8 +1,12 @@
+import datetime
 import statistics
+import types
 import uuid
 from pathlib import Path
 from typing import Any
+from zipfile import ZipFile
 
+import pytest
 from sqlalchemy.orm import Session
 
 import tests.data as test_data
@@ -21,15 +25,270 @@ from mealie.db.models.recipe.recipe import RecipeModel
 from mealie.db.models.recipe.tool import Tool
 from mealie.db.models.users.user_to_recipe import UserToRecipe
 from mealie.db.models.users.users import User
+from mealie.services.backups_v2 import backup_v2 as backup_v2_module
 from mealie.services.backups_v2.alchemy_exporter import AlchemyExporter
 from mealie.services.backups_v2.backup_file import BackupFile
+from mealie.services.backups_v2.backup_status import STATUS_FILE_NAME
 from mealie.services.backups_v2.backup_v2 import BackupV2
+from mealie.services.backups_v2.scheduled_backup import scheduled_backup_time
+from mealie.services.scheduler.tasks.create_scheduled_backup import SLOT_PREFIX
 
 
 def dict_sorter(d: dict) -> Any:
     possible_keys = {"created_at", "id"}
 
     return next((d[key] for key in possible_keys if d.get(key)), 1)
+
+
+FROZEN_NOW = datetime.datetime(2026, 11, 13, 4, 45, 0, tzinfo=datetime.UTC)
+
+
+class _FrozenDatetime(datetime.datetime):
+    @classmethod
+    def now(cls, tz: datetime.tzinfo | None = None) -> _FrozenDatetime:  # type: ignore[override]
+        return cls.fromtimestamp(FROZEN_NOW.timestamp(), tz)
+
+
+@pytest.fixture
+def frozen_backup(monkeypatch: pytest.MonkeyPatch):
+    frozen_module = types.SimpleNamespace(datetime=_FrozenDatetime, UTC=datetime.UTC)
+    monkeypatch.setattr(backup_v2_module, "datetime", frozen_module)
+    backup_v2 = BackupV2()
+    yield backup_v2
+    backup_v2.db_exporter.engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("app_version", "version_in_name"),
+    [("develop", "dev-abc1234"), ("nightly", "nightly-abc1234"), ("v3.1.0", "v3.1.0")],
+)
+def test_scheduled_backup_name_is_a_managed_name(
+    frozen_backup: BackupV2, monkeypatch: pytest.MonkeyPatch, app_version: str, version_in_name: str
+):
+    monkeypatch.setattr(backup_v2_module, "APP_VERSION", app_version)
+    monkeypatch.setattr(frozen_backup.settings, "GIT_COMMIT_HASH", "abc1234def")
+
+    path = frozen_backup.backup(scheduled=True)
+    try:
+        assert path.name == f"mealie_scheduled_{version_in_name}_2026.11.13.04.45.00.zip"
+        assert path.exists()
+        assert scheduled_backup_time(path.name) == FROZEN_NOW
+    finally:
+        path.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize(
+    ("app_version", "version_in_name"),
+    [("develop", "dev-abc1234"), ("nightly", "nightly-abc1234"), ("v3.1.0", "v3.1.0")],
+)
+def test_manual_backup_name_is_unchanged_and_never_a_managed_name(
+    frozen_backup: BackupV2, monkeypatch: pytest.MonkeyPatch, app_version: str, version_in_name: str
+):
+    monkeypatch.setattr(backup_v2_module, "APP_VERSION", app_version)
+    monkeypatch.setattr(frozen_backup.settings, "GIT_COMMIT_HASH", "abc1234def")
+
+    path = frozen_backup.backup()
+    try:
+        assert path.name == f"mealie_{version_in_name}_2026.11.13.04.45.00.zip"
+        assert path.exists()
+        assert not path.with_name(f"{path.name}.part").exists()
+        assert scheduled_backup_time(path.name) is None
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_backup_does_not_contain_the_status_file_or_the_slot_marker(frozen_backup: BackupV2):
+    backup_dir = frozen_backup.directories.BACKUP_DIR
+    hidden = [backup_dir / STATUS_FILE_NAME, backup_dir / f"{SLOT_PREFIX}20261113"]
+    for file in hidden:
+        file.write_text("{}")
+
+    path = frozen_backup.backup(scheduled=True)
+    try:
+        with ZipFile(path) as zip_file:
+            names = zip_file.namelist()
+
+        assert names
+        assert not any(file.name in name for file in hidden for name in names)
+    finally:
+        path.unlink(missing_ok=True)
+        for file in hidden:
+            file.unlink(missing_ok=True)
+
+
+def _expected_path(backup_v2: BackupV2) -> Path:
+    path = backup_v2.backup(scheduled=True)
+    path.unlink()
+    return path
+
+
+def _fail_dump() -> dict:
+    raise OSError("disk full")
+
+
+def _fail_write(*args: Any, **kwargs: Any) -> None:
+    raise OSError("write failed")
+
+
+def _part_path(target: Path) -> Path:
+    return target.with_name(f"{target.name}.part")
+
+
+def _backup_dir_names(backup_v2: BackupV2) -> set[str]:
+    return {path.name for path in backup_v2.directories.BACKUP_DIR.iterdir()}
+
+
+def test_failed_dump_leaves_no_partial_file(frozen_backup: BackupV2, monkeypatch: pytest.MonkeyPatch):
+    target = _expected_path(frozen_backup)
+    before = _backup_dir_names(frozen_backup)
+
+    monkeypatch.setattr(frozen_backup.db_exporter, "dump", _fail_dump)
+    with pytest.raises(OSError, match="disk full"):
+        frozen_backup.backup(scheduled=True)
+
+    assert not target.exists()
+    assert not _part_path(target).exists()
+    assert _backup_dir_names(frozen_backup) == before
+
+
+def test_backup_is_written_under_a_temporary_name_until_it_is_complete(
+    frozen_backup: BackupV2, monkeypatch: pytest.MonkeyPatch
+):
+    target = _expected_path(frozen_backup)
+    part = _part_path(target)
+    marker = frozen_backup.directories.DATA_DIR / "partial_backup_marker.txt"
+    marker.write_text("marker")
+    seen_during_write: list[tuple[bool, bool]] = []
+    real_write = ZipFile.write
+
+    def spy_write(self: ZipFile, *args: Any, **kwargs: Any) -> None:
+        seen_during_write.append((target.exists(), part.exists()))
+        real_write(self, *args, **kwargs)
+
+    monkeypatch.setattr(ZipFile, "write", spy_write)
+    try:
+        path = frozen_backup.backup(scheduled=True)
+
+        assert path == target
+        assert seen_during_write
+        assert set(seen_during_write) == {(False, True)}
+        assert not part.exists()
+        with BackupFile(target) as contents:
+            assert contents.validate()
+    finally:
+        marker.unlink(missing_ok=True)
+        target.unlink(missing_ok=True)
+        part.unlink(missing_ok=True)
+
+
+def test_failed_zip_write_removes_the_partial_file(frozen_backup: BackupV2, monkeypatch: pytest.MonkeyPatch):
+    target = _expected_path(frozen_backup)
+    part = _part_path(target)
+    marker = frozen_backup.directories.DATA_DIR / "partial_backup_marker.txt"
+    marker.write_text("marker")
+    seen_during_write: list[tuple[bool, bool]] = []
+
+    def fail_write(*args: Any, **kwargs: Any) -> None:
+        seen_during_write.append((target.exists(), part.exists()))
+        raise OSError("write failed")
+
+    monkeypatch.setattr(ZipFile, "write", fail_write)
+    try:
+        with pytest.raises(OSError, match="write failed"):
+            frozen_backup.backup(scheduled=True)
+    finally:
+        marker.unlink(missing_ok=True)
+
+    assert seen_during_write and seen_during_write[0] == (False, True)
+    assert not target.exists()
+    assert not part.exists()
+
+
+def test_failed_rename_leaves_neither_file(frozen_backup: BackupV2, monkeypatch: pytest.MonkeyPatch):
+    target = _expected_path(frozen_backup)
+
+    def fail_replace(src: Any, dst: Any) -> None:
+        raise OSError("rename failed")
+
+    monkeypatch.setattr(backup_v2_module.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="rename failed"):
+        frozen_backup.backup(scheduled=True)
+
+    assert not target.exists()
+    assert not _part_path(target).exists()
+
+
+def test_failed_dump_keeps_an_existing_backup_with_the_same_name(
+    frozen_backup: BackupV2, monkeypatch: pytest.MonkeyPatch
+):
+    target = _expected_path(frozen_backup)
+    target.write_bytes(b"finished backup")
+    try:
+        monkeypatch.setattr(frozen_backup.db_exporter, "dump", _fail_dump)
+        with pytest.raises(OSError, match="disk full"):
+            frozen_backup.backup(scheduled=True)
+
+        assert target.read_bytes() == b"finished backup"
+    finally:
+        target.unlink(missing_ok=True)
+
+
+def test_failed_zip_write_keeps_an_existing_backup_with_the_same_name(
+    frozen_backup: BackupV2, monkeypatch: pytest.MonkeyPatch
+):
+    target = _expected_path(frozen_backup)
+    target.write_bytes(b"finished backup")
+    marker = frozen_backup.directories.DATA_DIR / "partial_backup_marker.txt"
+    marker.write_text("marker")
+    try:
+        monkeypatch.setattr(ZipFile, "write", _fail_write)
+        with pytest.raises(OSError, match="write failed"):
+            frozen_backup.backup(scheduled=True)
+
+        assert target.read_bytes() == b"finished backup"
+        assert not _part_path(target).exists()
+    finally:
+        marker.unlink(missing_ok=True)
+        target.unlink(missing_ok=True)
+
+
+def test_failed_dump_keeps_a_temporary_file_it_did_not_create(frozen_backup: BackupV2, monkeypatch: pytest.MonkeyPatch):
+    part = _part_path(_expected_path(frozen_backup))
+    part.write_bytes(b"another writer")
+    try:
+        monkeypatch.setattr(frozen_backup.db_exporter, "dump", _fail_dump)
+        with pytest.raises(OSError, match="disk full"):
+            frozen_backup.backup(scheduled=True)
+
+        assert part.read_bytes() == b"another writer"
+    finally:
+        part.unlink(missing_ok=True)
+
+
+def test_failed_cleanup_keeps_the_original_error(frozen_backup: BackupV2, monkeypatch: pytest.MonkeyPatch):
+    target = _expected_path(frozen_backup)
+    part = _part_path(target)
+    marker = frozen_backup.directories.DATA_DIR / "partial_backup_marker.txt"
+    marker.write_text("marker")
+    real_unlink = Path.unlink
+
+    def fail_unlink(self: Path, missing_ok: bool = False) -> None:
+        if self == part:
+            raise PermissionError("cannot delete")
+        real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(ZipFile, "write", _fail_write)
+    monkeypatch.setattr(Path, "unlink", fail_unlink)
+    try:
+        with pytest.raises(OSError, match="write failed"):
+            frozen_backup.backup(scheduled=True)
+
+        assert not target.exists()
+    finally:
+        monkeypatch.undo()
+        marker.unlink(missing_ok=True)
+        target.unlink(missing_ok=True)
+        part.unlink(missing_ok=True)
 
 
 def test_database_backup():

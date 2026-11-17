@@ -16,6 +16,27 @@ From this page, you will be able to:
 !!! tip
     If you're using Mealie with SQLite all your data is stored in the /app/data/ folder in the container. You can easily perform entire site backups by stopping the container, and backing up this folder with your chosen tool. This is the **best** way to backup your data.
 
+## Scheduled Backups
+
+Mealie can create a backup every day on its own. Set these variables in your [backend configuration](../installation/backend-config.md):
+
+| Variable                  | Default | Description                                    |
+| ------------------------- | :-----: | ---------------------------------------------- |
+| `BACKUP_SCHEDULE_ENABLED` | `False` | Create a backup every day                      |
+| `BACKUP_RETENTION_COUNT`  |   `7`   | Number of scheduled backups to keep. Minimum 1 |
+
+The backup runs once a day at `DAILY_SCHEDULE_TIME`. Scheduled backups are named `mealie_scheduled_{version}_{timestamp}.zip`. The timestamp is in UTC.
+
+Mealie manages every file with such a name in the backup folder. After each run, Mealie keeps the newest scheduled backups, up to the retention count. Mealie removes the older ones. Mealie finds the age of a scheduled backup from the timestamp in its name.
+
+!!! warning
+    Do not give other files a name of the form `mealie_scheduled_*.zip`. Mealie can remove a file with such a name from the backup folder. This includes a scheduled backup that you upload again.
+
+!!! note
+    Mealie never removes a backup with another name. The backups that you create with the button have another name.
+
+The Backups page shows the schedule, the retention count, and the result of the last run above the backup list.
+
 ## Restoring from a Backup
 
 To restore from a backup it needs to be uploaded to your instance which can be done through the web portal. On the top left of the page you'll see an upload button. Click this button and select the backup file you want to upload and it will be available to import shortly. You can alternatively use one of the backups you see on the screen, if one exists.
